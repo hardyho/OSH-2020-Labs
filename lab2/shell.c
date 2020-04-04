@@ -10,7 +10,6 @@ int execute(char **args){
     int i;
        	/* 没有输入命令 */
     if (!args[0]){
-	printf("1");
         return 0;
     }
         /* 内建命令 */
@@ -53,6 +52,57 @@ int execute(char **args){
 }
 
 
+int execute_redir(char **args){
+    int i, In = 0, Out = 0, Cover;
+    char *InFile,*OutFile;
+    pid_t pid;
+    FILE *fp;
+    for (i=0; args[i]; i++){
+        if (strcmp(args[i], ">") == 0){
+            args[i] = NULL;
+            OutFile = args[++i];
+            Cover = 1;
+            Out++;
+        }
+        if (strcmp(args[i], ">>") == 0){
+            args[i] = NULL;
+            OutFile = args[++i];
+            Cover = 0;
+            Out++;
+        }
+        if (strcmp(args[i], "<") == 0){
+            args[i] = NULL;
+            InFile = args[++i];
+            In++;
+        }
+    }
+    if (In == 0 && Out == 0) return execute(args);
+    if (In){
+        if ((fp = fopen(InFile,"r")) == NULL) {
+            printf("ERROR: Wrong Input File.\n");
+            return 0;
+        }
+        else fclose(fp);
+    }
+    if (In > 1 || Out > 1){
+        printf("ERROR: Too much redirection.\n");
+        return 0;
+    }
+    pid = fork();
+    if (pid == 0){
+        if (In) freopen(InFile, "r", stdin);
+        if (Out && Cover) freopen(OutFile, "w", stdout);
+        if (Out && !Cover) freopen(OutFile, "a", stdout);
+        execute(args);
+        exit(0);
+    }
+    else {
+        waitpid(pid,NULL,0);
+        return 0;
+    }
+}
+
+
 int pipecreate(char **args) {
     int i,status;
     pid_t pid;
@@ -62,7 +112,7 @@ int pipecreate(char **args) {
     if (args[i]) {
         args[i] = NULL;
         pipe(fd);
-	pid = fork();
+	    pid = fork();
         if (pid != 0) {
 	    waitpid(pid,NULL,0);
 	    dup2(fd[0],STDIN_FILENO);
@@ -76,11 +126,11 @@ int pipecreate(char **args) {
 	    close(fd[0]);
             dup2(fd[1],STDOUT_FILENO);
 	    close(fd[1]);
-            execute(args); 
+            execute_redir(args); 
 	    exit(0);
-	}	
+	    }	
     }
-    else return execute(args);
+    else return execute_redir(args);
 }
 
 
