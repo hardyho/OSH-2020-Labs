@@ -5,6 +5,7 @@
 #include <sys/wait.h>
 #include <sys/types.h>
 
+int exitcode;
 
 int execute(char **args){
     int i;
@@ -36,8 +37,9 @@ int execute(char **args){
         }
         return 0;
     }
-    if (strcmp(args[0], "exit") == 0)
-        return 1;
+    if (strcmp(args[0], "exit") == 0) {
+        exit(1);
+    }
     /* 外部命令 */
     pid_t pid2 = fork();
     if (pid2 == 0) {
@@ -133,8 +135,33 @@ int pipecreate(char **args) {
     else return execute_redir(args);
 }
 
+void sig_handler(int sig){
+    if (sig == SIGINT){
+        printf("\n");
+        exit(0);
+    }
+}
+
+int execute_sig(char **args){
+    pid_t pid;
+    int status;
+    pid = fork();
+    if (pid == 0){
+        signal(SIGINT,sig_handler);
+        pipecreate(args);
+        exit(0);
+    }
+    else{
+        signal(SIGINT,SIG_IGN);
+        waitpid(pid, &status, 0);
+        if (WEXITSTATUS(status) == 1) exitcode = 1;
+        return 0;
+    }
+}
+
 
 int main() {
+    exitcode = 0;
     /* 输入的命令行 */
     char cmd[256];
     /* 命令行拆解成的各部分，以空指针结尾 */
@@ -158,7 +185,8 @@ int main() {
                     break;
                 }
         args[i] = NULL;
-	if (pipecreate(args) == 1) return 0;
+    execute_sig(args);
+	if (exitcode == 1) return 0;
     }
 }
 
