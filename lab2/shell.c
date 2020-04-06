@@ -142,53 +142,43 @@ void sig_handler(int sig){
     }
 }
 
-int execute_sig(char **args){
-    pid_t pid;
-    int status;
-    pid = fork();
-    if (pid == 0){
-        signal(SIGINT,sig_handler);
-        pipecreate(args);
-        exit(0);
-    }
-    else{
-        signal(SIGINT,SIG_IGN);
-        waitpid(pid, &status, 0);
-        if (WEXITSTATUS(status) == 1) exitcode = 1;
-        return 0;
-    }
-}
-
 
 int main() {
-    exitcode = 0;
+    pid_t pid;
+    int status;
     /* 输入的命令行 */
     char cmd[256];
     /* 命令行拆解成的各部分，以空指针结尾 */
     char *args[128];
     int i;
     while (1) {
-        /* 提示符 */
-	printf("# ");
-        fflush(stdin);
-	fgets(cmd, 256, stdin);
-	/* 清理结尾的换行符 */
-        for (i = 0; cmd[i] != '\n'; i++);
-        cmd[i] = '\0';
-	/* 拆解命令行 */
-        args[0] = cmd;
-        for (i = 0; *args[i]; i++)
-            for (args[i+1] = args[i] + 1; *args[i+1]; args[i+1]++)
-                if (*args[i+1] == ' ') {
-                    *args[i+1] = '\0';
-                    args[i+1]++;
-                    break;
-                }
-        args[i] = NULL;
-    execute_sig(args);
-	if (exitcode == 1) return 0;
+        pid = fork();
+        if (pid == 0){
+            signal(SIGINT,sig_handler);
+            /* 提示符 */
+	        printf("# ");
+            fflush(stdin);
+	        fgets(cmd, 256, stdin);
+	        /* 清理结尾的换行符 */
+            for (i = 0; cmd[i] != '\n'; i++);
+            cmd[i] = '\0';
+	        /* 拆解命令行 */
+            args[0] = cmd;
+            for (i = 0; *args[i]; i++)
+                for (args[i+1] = args[i] + 1; *args[i+1]; args[i+1]++)
+                    if (*args[i+1] == ' ') {
+                        *args[i+1] = '\0';
+                        args[i+1]++;
+                        break;
+                    }
+            args[i] = NULL;
+        pipecreate(args);
+        exit(0);
+        }
+        else{
+            signal(SIGINT,SIG_IGN);
+            waitpid(pid, &status, 0);
+            if (WEXITSTATUS(status) == 1) return 0;
+        }
     }
 }
-
-
-
