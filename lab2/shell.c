@@ -4,8 +4,11 @@
 #include <string.h>
 #include <sys/wait.h>
 #include <sys/types.h>
-
-int exitcode;
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 
 int execute(char **args){
     int i;
@@ -53,16 +56,25 @@ int execute(char **args){
     return 0;
 }
 
-
 int execute_redir(char **args){
-    int i, In = 0, Out = 0, Cover;
-    char *InFile,*OutFile;
+    int i, j, In = 0, Out = 0, Cover, tcp_in_flag, tcp_out_flag, port_in, port_out, s_in, s_out;
+    char *InFile,*OutFile,tcp_cmp[10], IP_in[16], IP_out[16];
+    struct sockaddr_in addr_in, addr_out;
     pid_t pid;
     FILE *fp;
-    for (i=0; args[i]; i++){
+    tcp_in_flag = 0;
+    tcp_out_flag = 0;
+    for (i = 0; args[i]; i++){
         if (strcmp(args[i], ">") == 0){
             args[i] = NULL;
-            OutFile = args[++i];
+            strncpy(tcp_cmp,args[++i],9);
+            if (strcmp(tcp_cmp, "/dev/tcp/") == 0){
+                tcp_out_flag = 1;
+                for(j = 9; args[i][j]!='/';IP_out[j-10] = args[i][j++]);
+                IP_out[j-9] = '\0';
+                port_out = atoi(args[i]+j+1);
+            }
+            else OutFile = args[i];
             Cover = 1;
             Out++;
         }
@@ -74,12 +86,19 @@ int execute_redir(char **args){
         }
         if (strcmp(args[i], "<") == 0){
             args[i] = NULL;
-            InFile = args[++i];
+            strncpy(tcp_cmp,args[++i],9);
+            if (strcmp(tcp_cmp, "/dev/tcp/") == 0){
+                tcp_in_flag = 1;
+                for(j = 9; args[i][j]!='/'; IP_in[j-10] = args[i][j++]);
+                IP_in[j-9] = '\0';
+                port_in = atoi(args[i]+j+1);
+            }
+            else InFile = args[i];
             In++;
         }
     }
     if (In == 0 && Out == 0) return execute(args);
-    if (In){
+    if (In && !tcp_in_flag){
         if ((fp = fopen(InFile,"r")) == NULL) {
             printf("ERROR: Wrong Input File.\n");
             return 0;
@@ -92,10 +111,46 @@ int execute_redir(char **args){
     }
     pid = fork();
     if (pid == 0){
-        if (In) freopen(InFile, "r", stdin);
-        if (Out && Cover) freopen(OutFile, "w", stdout);
+        if (In){
+            if (tcp_in_flag){
+                if((s_in = socket(AF_INET,SOCK_STREAM,0))<0){
+                    printf("socket error\n");
+                    exit(1);
+                }
+                addr_in.sin_family = AF_INET;
+                addr_in.sin_port=htons(port_in);
+                addr_in.sin_addr.s_addr = inet_addr(IP_in);
+                if (-1 == connect(s_in, (struct sockaddr*)(&addr_in), sizeof(struct sockaddr))){
+                    printf("connect error\n");
+                    exit(1);
+                }
+                dup2(s_in, STDIN_FILENO);
+            }
+            else freopen(InFile, "r", stdin);
+        }
+        if (tcp_out_flag) printf("IP:%s,port:%d\n",IP_out,port_out);
+        if (tcp_in_flag) printf("IP:%s,port:%d\n",IP_in,port_in);
         if (Out && !Cover) freopen(OutFile, "a", stdout);
+        if (Out && Cover){
+            if (tcp_out_flag){
+                if((s_out = socket(AF_INET,SOCK_STREAM,0))<0){
+                    printf("socket error\n");
+                    exit(1);
+                }
+                addr_out.sin_family = AF_INET;
+                addr_out.sin_port = htons(port_out);
+                addr_out.sin_addr.s_addr = inet_addr("127.0.0.1");
+                if (-1 == connect(s_out, (struct sockaddr*)(&addr_out), sizeof(struct sockaddr))){
+                    printf("connect error\n");
+                    exit(1);
+                }
+                dup2(s_out, STDOUT_FILENO);
+            }
+            else freopen(OutFile, "w", stdout);
+        } 
         execute(args);
+        if (tcp_in_flag) close(s_in);
+        if (tcp_out_flag) close(s_out);
         exit(0);
     }
     else {
@@ -120,15 +175,15 @@ int pipecreate(char **args) {
 	    dup2(fd[0],STDIN_FILENO);
 	    close(fd[1]);
 	    close(fd[0]);
-            pipecreate(&args[i+1]);
+        pipecreate(&args[i+1]);
 	    dup2(sfd,STDIN_FILENO);
 	    return 0;
         }
         else {
 	    close(fd[0]);
-            dup2(fd[1],STDOUT_FILENO);
+        dup2(fd[1],STDOUT_FILENO);
 	    close(fd[1]);
-            execute_redir(args); 
+        execute_redir(args); 
 	    exit(0);
 	    }	
     }
