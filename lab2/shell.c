@@ -5,6 +5,7 @@
 #include <sys/wait.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/prctl.h>
 #include <fcntl.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -46,6 +47,7 @@ int execute(char **args){
     /* 外部命令 */
     pid_t pid2 = fork();
     if (pid2 == 0) {
+        prctl(PR_SET_PDEATHSIG,SIGKILL);
         /* 子进程 */
         execvp(args[0], args);
         /* execvp失败 */
@@ -148,6 +150,7 @@ int execute_redir(char **args){
             }
             else freopen(OutFile, "w", stdout);
         } 
+        printf("%s",OutFile);
         execute(args);
         if (tcp_in_flag) close(s_in);
         if (tcp_out_flag) close(s_out);
@@ -197,15 +200,20 @@ void sig_handler(int sig){
     }
 }
 
+int allow_for_env(char a){
+    if(((a > 47) && (a < 58)) || ((a > 64) && (a < 91)) || ((a > 96) && (a < 123)) || (a == 95)) return 1;
+    else return 0;
+}
 
 int main() {
     pid_t pid;
     int status;
+    char temp[32],env[256];
     /* 输入的命令行 */
     char cmd[256];
     /* 命令行拆解成的各部分，以空指针结尾 */
     char *args[128];
-    int i;
+    int i, j;
     while (1) {
         pid = fork();
         if (pid == 0){
@@ -227,8 +235,23 @@ int main() {
                         break;
                     }
             args[i] = NULL;
-        pipecreate(args);
-        exit(0);
+            for (i = 0; args[i]; i++){
+                if (args[i][0] == '$'){
+                    for (j = 1; args[i][j] && allow_for_env(args[i][j]); temp[j++ - 1] = args[i][j]);
+                    temp[j-1] = '\0';
+                    strcpy(env, getenv(temp));
+                    if (temp == NULL){
+                        printf("wrong env\n");
+                        continue;
+                    }
+                    else{
+                        if (args[i][j]) strcat(env, args[i]+j);
+                        strcpy(args[i], env);
+                    }
+                }
+            }
+            pipecreate(args);
+            exit(0);
         }
         else{
             signal(SIGINT,SIG_IGN);
