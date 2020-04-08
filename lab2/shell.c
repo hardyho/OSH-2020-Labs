@@ -47,7 +47,7 @@ int execute(char **args){
     /* 外部命令 */
     pid_t pid2 = fork();
     if (pid2 == 0) {
-        prctl(PR_SET_PDEATHSIG,SIGKILL);
+        prctl(PR_SET_PDEATHSIG,SIGKILL); // Been added here. In order to kill all son process when the Ctrl+C is detected.
         /* 子进程 */
         execvp(args[0], args);
         /* execvp失败 */
@@ -58,6 +58,9 @@ int execute(char **args){
     return 0;
 }
 
+
+// This function is about redirection, including redirect to server
+// When you want to redirect to other file, you may need to run the shell as root
 int execute_redir(char **args){
     int i, j, In = 0, Out = 0, Cover, tcp_in_flag, tcp_out_flag, port_in, port_out, s_in, s_out;
     char *InFile,*OutFile,tcp_cmp[10], IP_in[16], IP_out[16];
@@ -69,6 +72,9 @@ int execute_redir(char **args){
     for (i = 0; args[i]; i++){
         if (strcmp(args[i], ">") == 0){
             args[i] = NULL;
+            //see if the objective start with "/dev/tcp/"
+            //if yes, get the IP address and the Port number
+            //this part is used in the same way below, when dealing with input redirection
             strncpy(tcp_cmp,args[++i],9);
             if (strcmp(tcp_cmp, "/dev/tcp/") == 0){
                 tcp_out_flag = 1;
@@ -111,10 +117,12 @@ int execute_redir(char **args){
         printf("ERROR: Too much redirection.\n");
         return 0;
     }
+    //create a son process 
     pid = fork();
     if (pid == 0){
         if (In){
             if (tcp_in_flag){
+                //use socket() and connect() to connect to the server
                 if((s_in = socket(AF_INET,SOCK_STREAM,0))<0){
                     printf("socket error\n");
                     exit(1);
@@ -130,18 +138,19 @@ int execute_redir(char **args){
             }
             else freopen(InFile, "r", stdin);
         }
-        if (tcp_out_flag) printf("IP:%s,port:%d\n",IP_out,port_out);
-        if (tcp_in_flag) printf("IP:%s,port:%d\n",IP_in,port_in);
+        if (tcp_out_flag) printf("Connect Success. IP:%s,port:%d\n",IP_out,port_out);
+        if (tcp_in_flag) printf("Connect Success. IP:%s,port:%d\n",IP_in,port_in);
         if (Out && !Cover) freopen(OutFile, "a", stdout);
         if (Out && Cover){
             if (tcp_out_flag){
+                //use socket() and connect() to connect to the server
                 if((s_out = socket(AF_INET,SOCK_STREAM,0))<0){
                     printf("socket error\n");
                     exit(1);
                 }
                 addr_out.sin_family = AF_INET;
                 addr_out.sin_port = htons(port_out);
-                addr_out.sin_addr.s_addr = inet_addr("127.0.0.1");
+                addr_out.sin_addr.s_addr = inet_addr(IP_out);
                 if (-1 == connect(s_out, (struct sockaddr*)(&addr_out), sizeof(struct sockaddr))){
                     printf("connect error\n");
                     exit(1);
@@ -150,7 +159,6 @@ int execute_redir(char **args){
             }
             else freopen(OutFile, "w", stdout);
         } 
-        printf("%s",OutFile);
         execute(args);
         if (tcp_in_flag) close(s_in);
         if (tcp_out_flag) close(s_out);
@@ -162,12 +170,15 @@ int execute_redir(char **args){
     }
 }
 
-
+// This function is about pipe
+// Using recursion
+// Each time this function is executed, it examine if there's any pipe structure.
+// It creates a son process and executes the left part of the pipe, which only contained one instruction, in the son process.
 int pipecreate(char **args) {
     int i,status;
     pid_t pid;
     int fd[2],sfd;
-    sfd = dup(STDIN_FILENO);
+    sfd = dup(STDIN_FILENO); // Seems that it's needed to save the STDIN and reload it after executed the whole instruction, otherwise there may be bug caused bu unknown reason
     for (i = 0; args[i] && *args[i]!='|'; i++);
     if (args[i]) {
         args[i] = NULL;
@@ -193,6 +204,8 @@ int pipecreate(char **args) {
     else return execute_redir(args);
 }
 
+// This function is used to handle the signal Ctrl+C 
+// Used in main()
 void sig_handler(int sig){
     if (sig == SIGINT){
         printf("\n");
@@ -200,6 +213,8 @@ void sig_handler(int sig){
     }
 }
 
+// This function is used to check if a char is allowed to occur in the name of an environment variable.
+// Used in main() 
 int allow_for_env(char a){
     if(((a > 47) && (a < 58)) || ((a > 64) && (a < 91)) || ((a > 96) && (a < 123)) || (a == 95)) return 1;
     else return 0;
@@ -215,6 +230,7 @@ int main() {
     char *args[128];
     int i, j;
     while (1) {
+        // In order to deal with Ctrl+C, Create a son process here, exit when recieve Ctrl+C
         pid = fork();
         if (pid == 0){
             signal(SIGINT,sig_handler);
@@ -235,6 +251,8 @@ int main() {
                         break;
                     }
             args[i] = NULL;
+            // This part is used to deal with environment variables
+            // Use getenv() to replace environment variables with there key.
             for (i = 0; args[i]; i++){
                 if (args[i][0] == '$'){
                     for (j = 1; args[i][j] && allow_for_env(args[i][j]); temp[j++ - 1] = args[i][j]);
@@ -243,6 +261,8 @@ int main() {
                     if (temp == NULL){
                         printf("wrong env\n");
                         continue;
+                        // In order to avoid any not considered bug, any use of environment variable that's not setted is not allowed
+                        // In ordinary shell, it may be replace by NULL.
                     }
                     else{
                         if (args[i][j]) strcat(env, args[i]+j);
@@ -254,9 +274,10 @@ int main() {
             exit(0);
         }
         else{
+            // Ignore the Ctrl+C in parent process to avoid exiting the program
             signal(SIGINT,SIG_IGN);
             waitpid(pid, &status, 0);
-            if (WEXITSTATUS(status) == 1) return 0;
+            if (WEXITSTATUS(status) == 1) return 0; // Special exitcode is set for the instruction 'exit', when detected, exit the program.
         }
     }
 }
