@@ -228,7 +228,7 @@ int main() {
     char cmd[256];
     /* 命令行拆解成的各部分，以空指针结尾 */
     char *args[128];
-    int i, j;
+    int i, j, k;
     while (1) {
         // In order to deal with Ctrl+C, Create a son process here, exit when recieve Ctrl+C
         pid = fork();
@@ -252,25 +252,28 @@ int main() {
                     }
             args[i] = NULL;
             // This part is used to deal with environment variables
-            // Use getenv() to replace environment variables with there key.
+            // Use getenv() to replace environment variables with there values.
             for (i = 0; args[i]; i++){
-                if (args[i][0] == '$'){
-                    for (j = 1; args[i][j] && allow_for_env(args[i][j]); temp[j++ - 1] = args[i][j]);
-                    temp[j-1] = '\0';
-                    strcpy(env, getenv(temp));
-                    if (temp == NULL){
-                        printf("wrong env\n");
-                        continue;
-                        // In order to avoid any not considered bug, any use of environment variable that's not setted is not allowed
-                        // In ordinary shell, it may be replace by NULL.
+                for (k = 0; args[i][k]; k++){
+                    if (args[i][k] == '$'){
+                        for (j = k+1; args[i][j] && allow_for_env(args[i][j]); temp[j++ - (1+k)] = args[i][j]);
+                        temp[j - (1+k)] = '\0';
+                        if (getenv(temp) == NULL){
+                            printf("wrong env\n");
+                            goto end_of_loop;
+                            // In order to avoid any not considered bug, any use of environment variable that's not setted is not allowed
+                            // In ordinary shell, it may be replace by NULL.
+                        }
+                        else{
+                            strcpy(env, getenv(temp));
+                            if (args[i][j]) strcat(env, args[i]+j);
+                            strcpy(args[i]+k, env);
+                        }
                     }
-                    else{
-                        if (args[i][j]) strcat(env, args[i]+j);
-                        strcpy(args[i], env);
-                    }
-                }
+                }                
             }
             pipecreate(args);
+            end_of_loop: 
             exit(0);
         }
         else{
