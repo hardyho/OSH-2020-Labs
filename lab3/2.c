@@ -183,7 +183,6 @@ int main(int argc, char **argv) {
                 temp->next = Used.next;
                 Used.next = temp;
                 tag = 1;
-                printf("Unused:%d\nUsed:%d\nClient number:%d\n",Unused.next->id,Used.next->id,client_num);
                 pthread_mutex_unlock(&mutex_send);
             }
             else{

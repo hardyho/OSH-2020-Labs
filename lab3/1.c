@@ -17,11 +17,13 @@ void *handle_chat(void *data) {
     int block_len = 1024;
     int length = 8;
     int i = 0;
+    int status;
     buffer = malloc(block_len * sizeof(char));
     strcpy(buffer,"Message:");
     ssize_t len;
     while (1){
-        while ((recv(pipe->fd_send, buffer + length, 1, 0) > 0) && (buffer[length] != '\n') && (length < block_len - 1)) length++;
+        while (((status = recv(pipe->fd_send, buffer + length, 1, 0)) > 0) && (buffer[length] != '\n') && (length < block_len - 1)) length++;
+        if (status <= 0) return NULL;
         if (buffer[length] == '\n') {
             while ((length - i * 1024) >= 1024){
                 send(pipe->fd_recv, buffer + 1024 * i, 1024, 0);
