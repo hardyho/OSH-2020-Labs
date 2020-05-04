@@ -121,8 +121,8 @@ void *send_message(){ // It could be improved, it's a single thread that send me
                     int already_send_length = 0;
                     int len;
                     while( already_send_length < message_len){
-                        len = send(fd_client[temp->id], send_buffer, message_len, 0); 
-                        if (temp > 0) already_send_length += len;
+                        len = send(fd_client[temp->id], send_buffer, message_len - already_send_length, 0); 
+                        if (len > 0) already_send_length += len;
                     }
                 }
             }
