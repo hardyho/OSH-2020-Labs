@@ -34,10 +34,11 @@ void *handle_chat(void *data) {
         perror("handle_chat");
         return NULL;
     }
-    id = temp->id;
+    id = temp->id; // Get the id of the User
 
     sprintf(buffer, "User %02d enters the room.\n", id);
     length = 25;
+    // Send a system message to all clients
     pthread_mutex_lock(&mutex_send);
     while (!ready) {
         pthread_cond_wait(&cv, &mutex_send);
@@ -50,12 +51,12 @@ void *handle_chat(void *data) {
 
     length = 16;
     memset(buffer, 0, 25 * sizeof(char));
-    sprintf(buffer, "Message from %02d:", id);
+    sprintf(buffer, "Message from %02d:", id); 
 
     while (1){
         while (((status = recv(*client_id, buffer + length, 1, 0)) > 0) && (buffer[length] != '\n') && (length < block_len - 1)) length++;
 
-        if (status <= 0){
+        if (status <= 0){ // If disconnected
             pthread_mutex_lock(&mutex_send);
             while (!ready) {
                 pthread_cond_wait(&cv, &mutex_send);
@@ -66,21 +67,22 @@ void *handle_chat(void *data) {
             current->next = Unused.next;
             Unused.next = current;
             client_num--;
-            printf("Unused:%d\nUsed:%d\nClient number:%d\n",Unused.next->id,Used.next->id,client_num);
+            printf("Disconnected. Client number:%d\n",client_num);
             send_id = -1;
-            sprintf(send_buffer, "User %02d has exited.\n", id);
+            sprintf(send_buffer, "User %02d has exited.\n", id); // Send a system message to all clients
             message_len = 20;
             ready = 0;
             pthread_mutex_unlock(&mutex_send);
             return NULL;
         }
 
-        if (buffer[length] == '\n') {
+        if (buffer[length] == '\n') { // A message is ready 
             printf("message ready to send from %d\n",id);
             pthread_mutex_lock(&mutex_send);
             while (!ready) {
                 pthread_cond_wait(&cv, &mutex_send);
             }
+            // Copy it to send_buffer from the client's buffer
             if (length < buffer_len){
                 send_id = id;
                 message_len = length + 1;
@@ -89,7 +91,7 @@ void *handle_chat(void *data) {
             }
             else{
                 send_id = id;
-                send_buffer = realloc(send_buffer, (length + 1) * sizeof(char));
+                send_buffer = realloc(send_buffer, (length + 1) * sizeof(char)); 
                 message_len = length + 1;
                 buffer_len = message_len;
                 memcpy(send_buffer, buffer, message_len);
@@ -108,7 +110,7 @@ void *handle_chat(void *data) {
     return NULL;
 }
 
-void *send_message(){
+void *send_message(){ // It could be improved, it's a single thread that send message to all clients
     int i = 0, j;
     struct Node *temp;
     while(1){
@@ -116,12 +118,12 @@ void *send_message(){
             pthread_mutex_lock(&mutex_send);
             for (temp = Used.next; temp; temp = temp->next){
                 if (temp && temp->id != send_id){
-                    while ((message_len - i * 1024) >= 1024){
-                        send(fd_client[temp->id], send_buffer + 1024 * i, 1024, 0);
-                        i++;
+                    int already_send_length = 0;
+                    int len;
+                    while( already_send_length < message_len){
+                        len = send(fd_client[temp->id], send_buffer, message_len, 0); 
+                        if (temp > 0) already_send_length += len;
                     }
-                    send(fd_client[temp->id], send_buffer + 1024 * i, message_len % 1024, 0);
-                    i = 0;
                 }
             }
             ready = 1;
@@ -156,7 +158,9 @@ int main(int argc, char **argv) {
         return 1;
     }
     send_buffer = malloc(buffer_len * sizeof(char));
-    pthread_create(&thread_message_handler, NULL, send_message, NULL);
+    pthread_create(&thread_message_handler, NULL, send_message, NULL); // send_message thread is created
+    
+    //Initialize linked list
     Unused.next = NULL;
     Used.next = NULL;
     for( i = 31; i >= 0; i--){
@@ -165,10 +169,11 @@ int main(int argc, char **argv) {
         temp->next = Unused.next;
         Unused.next = temp;
     }
+    
     while(1){
         while (client_num < 32){
-            if (tag == 1 && client_num == 0) return 0;
-            if ((fd_temp = accept(fd, NULL, NULL)) != -1) {
+            //if (tag == 1 && client_num == 0) return 0;
+            if ((fd_temp = accept(fd, NULL, NULL)) != -1) { // accept and create recieve thread
                 pthread_mutex_lock(&mutex_send);
                 while (!ready) {
                     pthread_cond_wait(&cv, &mutex_send);
@@ -179,6 +184,7 @@ int main(int argc, char **argv) {
                 pthread_create(&thread[i], NULL, handle_chat, (void *)&fd_client[i]);
                 pthread_detach(thread[i]);
                 client_num++;
+                printf("Connected. Client number:%d\n",client_num);
                 Unused.next = temp->next;
                 temp->next = Used.next;
                 Used.next = temp;
@@ -193,3 +199,4 @@ int main(int argc, char **argv) {
     }
     return 0;
 }
+
