@@ -19,18 +19,18 @@ int main(int argc, char **argv) {
         int number;
         int block_length;
         struct message_node *next;
-    } head, *rear, *new_message, *unfinished[32], *message_ptr;
+    } head, *rear, *new_message, *unfinished[32], *message_ptr; //To save message, including completed messages and unfinished messages
 
     struct fd_node{
         int id;
         struct fd_node *next;
-    } Used, Unused;
+    } Used, Unused;  
 
     struct client_message_manager{
         struct message_node *current_message;
         int already_send_length;
         int to_send_length;
-    } message_manager[32];
+    } message_manager[32]; // For each clients, there's a message manager, which can handle what message should be sent
 
     int port = atoi(argv[1]);
     int i;
@@ -119,7 +119,7 @@ int main(int argc, char **argv) {
                             message_manager[i].current_message = rear;
                             message_manager[i].to_send_length = 0;
                             printf("User%d Connecting to server. FD:%d\n", i, fd_client[i]);
-                            printf("%d Users connected.\n",client_num);
+                            printf("%d Users connected.\n\n",client_num);
 
                             new_message = malloc(sizeof(struct message_node));
                             buffer = malloc(sizeof(char) * 35);
@@ -196,12 +196,12 @@ int main(int argc, char **argv) {
                                     if (flag == 0){
                                         printf("User%d disconnected.\n",temp->id);
                                         //Disconnect
-                                        temp_1->next = temp->next;
+                                        if (temp->next) temp_1->next = temp->next;
+                                        else temp_1->next = NULL;
                                         temp->next = Unused.next;
                                         Unused.next = temp;
                                         client_num--;
-                                        printf("%d Users connected.",client_num);
-
+                                        printf("%d Users connected.\n\n",client_num);
                                         new_message = malloc(sizeof(struct message_node));
                                         buffer = malloc(sizeof(char) * 35);
                                         sprintf(buffer, "User %02d has left the room.\n", temp->id);
@@ -212,7 +212,6 @@ int main(int argc, char **argv) {
                                         new_message->next = NULL;
                                         rear->next = new_message;
                                         rear = new_message;
-
                                         unfinished[temp->id] = NULL;
                                     }
                                     else{
@@ -249,12 +248,13 @@ int main(int argc, char **argv) {
                                         new_message->message_buffer = buffer;
                                     }
                                 }  
-                            } //while
-                            End_Of_Loop: 1;                     
+                            } //while                    
                         } //if FD_ISSET
                     }
                 }
             }//switch
+
+            End_Of_Loop: 1;
 
             FD_ZERO(&clients);
             max_client_fd = 0;

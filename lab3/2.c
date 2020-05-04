@@ -66,7 +66,7 @@ void *handle_chat(void *data) {
             current->next = Unused.next;
             Unused.next = current;
             client_num--;
-            printf("Unused:%d\nUsed:%d\nClient number:%d\n",Unused.next->id,Used.next->id,client_num);
+            printf("Disconnected. Client number:%d\n",client_num);
             send_id = -1;
             sprintf(send_buffer, "User %02d has exited.\n", id);
             message_len = 20;
@@ -116,12 +116,12 @@ void *send_message(){
             pthread_mutex_lock(&mutex_send);
             for (temp = Used.next; temp; temp = temp->next){
                 if (temp && temp->id != send_id){
-                    while ((message_len - i * 1024) >= 1024){
-                        send(fd_client[temp->id], send_buffer + 1024 * i, 1024, 0);
-                        i++;
+                    int already_send_length = 0;
+                    int len;
+                    while( already_send_length < message_len){
+                        len = send(fd_client[temp->id], send_buffer, message_len, 0);
+                        if (temp > 0) already_send_length += len;
                     }
-                    send(fd_client[temp->id], send_buffer + 1024 * i, message_len % 1024, 0);
-                    i = 0;
                 }
             }
             ready = 1;
@@ -167,7 +167,7 @@ int main(int argc, char **argv) {
     }
     while(1){
         while (client_num < 32){
-            if (tag == 1 && client_num == 0) return 0;
+            //if (tag == 1 && client_num == 0) return 0;
             if ((fd_temp = accept(fd, NULL, NULL)) != -1) {
                 pthread_mutex_lock(&mutex_send);
                 while (!ready) {
@@ -179,6 +179,7 @@ int main(int argc, char **argv) {
                 pthread_create(&thread[i], NULL, handle_chat, (void *)&fd_client[i]);
                 pthread_detach(thread[i]);
                 client_num++;
+                printf("Connected. Client number:%d\n",client_num);
                 Unused.next = temp->next;
                 temp->next = Used.next;
                 Used.next = temp;
