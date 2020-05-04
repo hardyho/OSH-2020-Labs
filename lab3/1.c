@@ -22,6 +22,7 @@ void *handle_chat(void *data) {
     strcpy(buffer,"Message:");
     ssize_t len;
     while (1){
+        // To handle `/n`, recv one char each time
         while (((status = recv(pipe->fd_send, buffer + length, 1, 0)) > 0) && (buffer[length] != '\n') && (length < block_len - 1)) length++;
         if (status <= 0) return NULL;
         if (buffer[length] == '\n') {
@@ -33,7 +34,7 @@ void *handle_chat(void *data) {
             length = 8;
             i = 0;
         }                          
-        else {
+        else { // If not enough space, realloc
             buffer = realloc(buffer, (block_len + 1024) * sizeof(char));
             block_len = block_len + 1024;
         }
