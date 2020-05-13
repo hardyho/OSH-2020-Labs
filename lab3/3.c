@@ -12,6 +12,7 @@ int main(int argc, char **argv) {
     int client_num = 0;
         int fd_client[32];
 
+    //To save message, including completed messages and unfinished messages
     struct message_node{
         int length;
         char *message_buffer;
@@ -19,13 +20,18 @@ int main(int argc, char **argv) {
         int number;
         int block_length;
         struct message_node *next;
+<<<<<<< HEAD
     } head, *rear, *new_message, *unfinished[32], *message_ptr; //To save message, including completed messages and unfinished messages
+=======
+    } head, *rear, *new_message, *unfinished[32], *message_ptr; 
+>>>>>>> 0e0cf7bec4c68c82cb4adf0c13e9991cf5784d7d
 
     struct fd_node{
         int id;
         struct fd_node *next;
     } Used, Unused;  
 
+    // For each clients, there's a message manager, which can handle what message should be sent
     struct client_message_manager{
         struct message_node *current_message;
         int already_send_length;
@@ -63,6 +69,7 @@ int main(int argc, char **argv) {
         return 1;
     }
 
+    //Initialize the list and the array
     Unused.next = NULL;
     Used.next = NULL;
     for(i = 31; i >= 0; i--){
@@ -87,14 +94,17 @@ int main(int argc, char **argv) {
     head.number = 0;
     rear = &head;
 
+    //Set timeout
     timeout.tv_sec = 1;
     timeout.tv_usec = 0;
 
 
 
     printf("Server is ready.\n");
-
-    while(1){
+        
+    /* Three `select`s are used.  Can handle connecting, recieving and sending.*/
+    while(1){        
+        /*connect handler*/
         if (client_num < 32){
             FD_ZERO(&server);
             FD_SET(fd, &server);
@@ -108,20 +118,20 @@ int main(int argc, char **argv) {
                     if (FD_ISSET(fd, &server)){
                         printf("Ready to accept.\n");
                         if ((fd_temp = accept(fd, NULL, NULL)) != -1){
-                            fcntl(fd_temp, F_SETFL, fcntl(fd_temp, F_GETFL, 0) | O_NONBLOCK);
+                            fcntl(fd_temp, F_SETFL, fcntl(fd_temp, F_GETFL, 0) | O_NONBLOCK); // set as nonblock
                             temp = Unused.next;
-                            i = temp->id;
+                            i = temp->id; // Allocate a new id from Unused
                             fd_client[i] = fd_temp;
                             client_num++;
-                            Unused.next = temp->next;
+                            Unused.next = temp->next; 
                             temp->next = Used.next;
                             Used.next = temp;
-                            message_manager[i].current_message = rear;
+                            message_manager[i].current_message = rear; // which means that messages before connection don't need to be send
                             message_manager[i].to_send_length = 0;
                             printf("User%d Connecting to server. FD:%d\n", i, fd_client[i]);
                             printf("%d Users connected.\n\n",client_num);
 
-                            new_message = malloc(sizeof(struct message_node));
+                            new_message = malloc(sizeof(struct message_node)); // A system message is send to all clients.
                             buffer = malloc(sizeof(char) * 35);
                             sprintf(buffer, "User %02d has entered the room.\n", temp->id);
                             new_message->length = 30;
@@ -142,7 +152,7 @@ int main(int argc, char **argv) {
             } //switch
         }
         
-
+        /*recieve and send handler*/
         if (client_num > 0){
             FD_ZERO(&clients);
             max_client_fd = 0;
@@ -151,6 +161,7 @@ int main(int argc, char **argv) {
                 if (fd_client[temp->id] > max_client_fd) max_client_fd = fd_client[temp->id];
             }
             
+            /*recieve*/
             switch(select(max_client_fd + 1, &clients, NULL, NULL, &timeout)){
                 case -1:{
                     perror("select");
@@ -165,7 +176,8 @@ int main(int argc, char **argv) {
                         temp = temp_1->next;
                         if (FD_ISSET(fd_client[temp->id], &clients)){
                             //printf("%d Ready to recieve.\n",temp->id);
-                            /* If there's an unfinished message*/
+                            
+                            // If there's an unfinished message
                             if (unfinished[temp->id] == NULL){ 
                                 new_message = malloc(sizeof(struct message_node));
                                 buffer = malloc(sizeof(char) * 1024);
@@ -175,7 +187,7 @@ int main(int argc, char **argv) {
                                 new_message->message_buffer = buffer;
                                 new_message->send_from = temp->id;
                             }
-                            /* Else create a new one*/
+                            // Else create a new one
                             else {
                                 new_message = unfinished[temp->id];
                                 length = new_message->length;
@@ -184,11 +196,12 @@ int main(int argc, char **argv) {
                             }
 
                             int flag = 0;
-                            while(1){ //End when the message is recieved completely or the client is disconnected. 
+                            while(1){ //End when the message is recieved completely(can't recieve anymore) or the client is disconnected. 
                                 //printf("length:%d,block_length:%d\n", length, block_len);
                                 while (((status = recv(fd_client[temp->id], buffer + length, 1, 0)) > 0) && (buffer[length] != '\n') && (length < block_len - 1)){
                                     length++;
-                                    flag = 1;
+                                    flag = 1; // To shown whether anything has been recieved when recv() == 0
+                                    // Distinguish a end of a message or a disconnection
                                     //printf("%d",flag);
                                 }
 
@@ -196,13 +209,15 @@ int main(int argc, char **argv) {
                                     if (flag == 0){
                                         printf("User%d disconnected.\n",temp->id);
                                         //Disconnect
+                                        //Return the fd_node to Unused
                                         if (temp->next) temp_1->next = temp->next;
                                         else temp_1->next = NULL;
                                         temp->next = Unused.next;
                                         Unused.next = temp;
                                         client_num--;
                                         printf("%d Users connected.\n\n",client_num);
-                                        new_message = malloc(sizeof(struct message_node));
+                                        
+                                        new_message = malloc(sizeof(struct message_node)); // A system message is send to all clients.
                                         buffer = malloc(sizeof(char) * 35);
                                         sprintf(buffer, "User %02d has left the room.\n", temp->id);
                                         new_message->length = 27;
@@ -215,6 +230,7 @@ int main(int argc, char **argv) {
                                         unfinished[temp->id] = NULL;
                                     }
                                     else{
+                                        // End of a message, save it in unfinished[]
                                         //printf("Reach the end.message:%s\n",buffer);
                                         new_message->length = length;
                                         new_message->block_length = block_len;
@@ -226,6 +242,7 @@ int main(int argc, char **argv) {
 
                                 else{
                                     if (buffer[length] == '\n'){
+                                        // A message ready to send, link it to the message list
                                         printf("message ready to send from %d\n",temp->id);
                                         new_message->length = length + 1;
                                         new_message->number = message_latest_id++;
@@ -233,6 +250,8 @@ int main(int argc, char **argv) {
                                         rear->next = new_message;
                                         rear = new_message;
                                         printf("message:%s\n",rear->message_buffer);
+                                        
+                                        // Create a new message for future use
                                         new_message = malloc(sizeof(struct message_node));
                                         buffer = malloc(sizeof(char) * 1024);
                                         block_len = 1024;
@@ -242,6 +261,7 @@ int main(int argc, char **argv) {
                                         new_message->send_from = temp->id;
                                     }
                                     else{
+                                        // If the buffer is too small
                                         printf("Realloc.\n");
                                         buffer = realloc(buffer, (block_len + 1024) * sizeof(char));
                                         block_len = block_len + 1024;
@@ -262,7 +282,8 @@ int main(int argc, char **argv) {
                 FD_SET(fd_client[temp->id], &clients);
                 if (fd_client[temp->id] > max_client_fd) max_client_fd = fd_client[temp->id];
             }
-
+            
+            /*send*/
             switch(select(max_client_fd + 1, NULL, &clients, NULL, &timeout)){
                 case -1:{
                     perror("select");
@@ -275,7 +296,9 @@ int main(int argc, char **argv) {
                     for(temp = Used.next; temp; temp = temp->next){
                         if (FD_ISSET(fd_client[temp->id], &clients)){
                             //printf("%d Ready to send.",temp->id);
-                            if (message_manager[temp->id].to_send_length == 0){
+                            // When all messages before have been sent, and there's a new message, move to the new one
+                            // Otherwise stay on the old one
+                            if (message_manager[temp->id].to_send_length == 0){ 
                                 if (message_manager[temp->id].current_message->next){
                                     //printf("New message!\n");
                                     message_manager[temp->id].current_message = message_manager[temp->id].current_message->next;
@@ -286,6 +309,7 @@ int main(int argc, char **argv) {
                                 }
                                 else continue;
                             } 
+                            // Send message
                             if (message_manager[temp->id].to_send_length > 0){
                                 //printf("The message:%s",message_manager[temp->id].current_message->message_buffer);
                                 int len = send(fd_client[temp->id], message_manager[temp->id].current_message->message_buffer + message_manager[temp->id].already_send_length, message_manager[temp->id].to_send_length, 0);
@@ -298,7 +322,8 @@ int main(int argc, char **argv) {
                     } //for          
                 } //default
             } //switch
-
+            
+            // Because there may be too many useless old messages, this part can free the space of useless messages
             int min_message_number = 1000;
             for(temp = Used.next; temp; temp = temp->next){
                 if (message_manager[temp->id].current_message->number < min_message_number) min_message_number = message_manager[temp->id].current_message->number;
