@@ -1,11 +1,19 @@
 #define _GNU_SOURCE    // Required for enabling clone(2)
 #include <stdio.h>
+#include <stdlib.h>
 #include <unistd.h>
 #include <sys/types.h> // For wait(2)
 #include <sys/wait.h>  // For wait(2)
 #include <sched.h>     // For clone(2)
 #include <signal.h>    // For SIGCHLD constant
 #include <sys/mman.h>  // For mmap(2)
+#include <sys/mount.h> 
+#include <sys/syscall.h>
+#include <sys/stat.h>
+#include <limits.h>
+#include <cap-ng.h>
+
+
 
 
 const char *usage =
@@ -19,13 +27,59 @@ void error_exit(int code, const char *message) {
 }
 
 int container(void *argv) {
-    char *args[2];
-    if (chroot(".") == -1)
-        error_exit(1, "chroot");
-    args[0] = (char *) argv;
-    args[1] = NULL;
+    char **args = (char **) argv;
+    //mount --make-rprivate
+    if(mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL) < 0) {
+        perror("mount private");
+        exit(0);
+    }
+
+    char tmpdir[] = "/tmp/lab4-XXXXXX";
+    mkdtemp(tmpdir);
+    //printf("Tmpdir: %s\n",tmpdir);
+    if (mount(".", tmpdir, "ext4", MS_RELATIME | MS_BIND, NULL) < 0) {
+        perror("mount rootfs"); exit(0); }  
+    
+
+    char oldrootdir[64] = "";
+    sprintf(oldrootdir, "%s/oldroot", tmpdir);
+    mkdir(oldrootdir, 0777);
+    if (syscall(SYS_pivot_root, tmpdir, oldrootdir) < 0) {
+        perror("pivot_root"); exit(0); }  
+
+    if (chdir("/") < 0) {
+        perror("chdir"); exit(0); }
+
+    char containerdir[64]= "";
+    sprintf(containerdir, "/oldroot%s", tmpdir);
+    rmdir(containerdir);
+
+    if (umount2("/oldroot", MNT_DETACH) == -1){
+        perror("umount2"); exit(0); }
+    rmdir("/oldroot");
+
+    //mount
+    if (mount("proc", "/proc", "proc", MS_NOSUID | MS_NODEV | MS_NOEXEC | MS_RELATIME, NULL) < 0) {
+        perror("mount proc"); exit(0); }  
+    if (mount("sysfs", "/sys", "sysfs", MS_RDONLY | MS_NOSUID | MS_NODEV | MS_NOEXEC | MS_RELATIME, NULL) < 0) {
+        perror("mount sys"); exit(0); }  
+    if (mount("udev", "/dev", "devtmpfs", MS_NOSUID | MS_RELATIME, NULL) < 0) {
+        perror("mount dev"); exit(0); }
+    if (mount("none", "/tmp", "tmpfs", MS_NOSUID | MS_NODEV | MS_NOATIME, NULL) < 0) {
+        perror("mount tmp"); exit(0); }  
+
+    capng_clear(CAPNG_SELECT_BOTH);
+    capng_updatev(CAPNG_ADD, CAPNG_EFFECTIVE|CAPNG_PERMITTED, 
+                  CAP_SETPCAP, CAP_MKNOD, CAP_AUDIT_WRITE, CAP_CHOWN,
+                  CAP_NET_RAW, CAP_DAC_OVERRIDE, CAP_FOWNER, CAP_FSETID,
+                  CAP_KILL, CAP_SETUID, CAP_SETGID, CAP_NET_BIND_SERVICE, 
+                  CAP_SYS_CHROOT, CAP_SETFCAP, -1);
+    capng_apply(CAPNG_SELECT_BOTH);
+
+
+
     execvp(args[0], args);
-    error_exit(255, "exec");
+    error_exit(-1, "exec");
 }
 
 int main(int argc, char **argv) {
@@ -45,7 +99,7 @@ int main(int argc, char **argv) {
     void *child_stack_start = child_stack + STACK_SIZE;
 
     int ch = clone(container, child_stack_start,
-                   CLONE_NEWNS | CLONE_NEWUTS | CLONE_NEWIPC | CLONE_NEWPID | CLONE_NEWCGROUP | SIGCHLD, argv[2]);
+                   CLONE_NEWNS | CLONE_NEWUTS | CLONE_NEWIPC | CLONE_NEWPID | CLONE_NEWCGROUP | SIGCHLD, argv + 2);
 
     // Parent waits for child
     int status, ecode = 0;
