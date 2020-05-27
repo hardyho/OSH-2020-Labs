@@ -146,7 +146,7 @@ int container(void *argv) {
         perror("mount cgroup/pids"); exit(0); }
 
     capng_clear(CAPNG_SELECT_BOTH);
-    capng_updatev(CAPNG_ADD, CAPNG_EFFECTIVE|CAPNG_PERMITTED, 
+    capng_updatev(CAPNG_ADD, CAPNG_BOUNDING_SET | CAPNG_EFFECTIVE | CAPNG_PERMITTED, 
                   CAP_SETPCAP, CAP_MKNOD, CAP_AUDIT_WRITE, CAP_CHOWN,
                   CAP_NET_RAW, CAP_DAC_OVERRIDE, CAP_FOWNER, CAP_FSETID,
                   CAP_KILL, CAP_SETUID, CAP_SETGID, CAP_NET_BIND_SERVICE, 
@@ -162,8 +162,6 @@ int container(void *argv) {
     
     if (seccomp_load(ctx) < 0){
         perror("seccomp_load"); exit(0); }
-
-
 
     execvp(args[0], args);
     error_exit(-1, "exec");
