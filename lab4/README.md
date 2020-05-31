@@ -8,36 +8,13 @@
 
 ## Namespaces隔离
 
-![image-20200529205209750](C:\Users\86185\AppData\Roaming\Typora\typora-user-images\image-20200529205209750.png)
+```
+    int ch = clone(container, child_stack_start,
+                   CLONE_NEWNS | CLONE_NEWUTS | CLONE_NEWIPC | CLONE_NEWPID | SIGCHLD, argv + 2);
+```
 
 在`main`中使用`clone`进行命名空间隔离。其中，cgroup的隔离在容器子进程内使用`unshare`进行隔离。
 
-
-
-利用以下代码代码进行处理：不断以一个字符为单位进行`recv`操作，如果出现回车，进行发送操作，如果出现空间不足，使用`realloc`。由于是阻塞模式，如果`recv`返回不正常，说明客户端已经退出。在两人聊天部分不做处理。
-
-处理大小为1M的消息，通过对`send`的结果进行记录，并在`send`不完整时利用`while`继续发送即可。由于为阻塞模式，实际上`send`一般不会出现不完整的情况。 
-
-```
-while (1){
-        while (((status = recv(pipe->fd_send, buffer + length, 1, 0)) > 0) && (buffer[length] != '\n') && (length < block_len - 1)) length++;
-        if (status <= 0) return NULL;
-        if (buffer[length] == '\n') {
-            int already_send_length = 0;
-            int len;
-            while( already_send_length < length + 1){
-                len = send(pipe->fd_recv, buffer, length + 1 - already_send_length, 0);
-                if (len > 0) already_send_length += len;
-            }
-            length = 8;
-        }                          
-        else {
-            buffer = realloc(buffer, (block_len + 1024) * sizeof(char));
-            block_len = block_len + 1024;
-        }
-    }
-}
-```
 
 
 
@@ -45,11 +22,26 @@ while (1){
 
 在容器内进行挂载。通过使用`strace`，可以找到相关系统调用的具体使用方法。
 
-![image-20200529205730923](C:\Users\86185\AppData\Roaming\Typora\typora-user-images\image-20200529205730923.png)
+```
+    if(mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL) < 0) {
+        perror("mount private");
+        exit(0);
+    }
+```
 
 先在容器内递归挂载为私有。
 
-![image-20200529205502357](C:\Users\86185\AppData\Roaming\Typora\typora-user-images\image-20200529205502357.png)
+```
+    //mount
+    if (mount("proc", "/proc", "proc", MS_NOSUID | MS_NODEV | MS_NOEXEC | MS_RELATIME, NULL) < 0) {
+        perror("mount proc"); exit(0); }  
+    if (mount("sysfs", "/sys", "sysfs", MS_RDONLY | MS_NOSUID | MS_NODEV | MS_NOEXEC | MS_RELATIME, NULL) < 0) {   
+        perror("mount sys"); exit(0); }          
+    if (mount("udev", "/dev", "devtmpfs", MS_NOSUID | MS_RELATIME, NULL) < 0) {
+        perror("mount dev"); exit(0); }
+    if (mount("none", "/tmp", "tmpfs", MS_NOSUID | MS_NODEV | MS_NOATIME, NULL) < 0) {
+        perror("mount tmp"); exit(0); } 
+```
 
 在主机上命令行中使用`mount`观察具体参数，并相应的在容器中进行设置。
 
@@ -61,7 +53,30 @@ while (1){
 
 ## Pivot_root 
 
-![image-20200529210241275](C:\Users\86185\AppData\Roaming\Typora\typora-user-images\image-20200529210241275.png)
+```
+    char tmpdir[] = "/tmp/lab4-XXXXXX";
+    mkdtemp(tmpdir);
+    //printf("Tmpdir: %s\n",tmpdir);
+    if (mount(".", tmpdir, "ext4", MS_RELATIME | MS_BIND, NULL) < 0) {
+        perror("mount rootfs"); exit(0); }  
+  
+    char oldrootdir[64] = "";
+    sprintf(oldrootdir, "%s/oldroot", tmpdir);
+    mkdir(oldrootdir, 0777);
+    if (syscall(SYS_pivot_root, tmpdir, oldrootdir) < 0) {
+        perror("pivot_root"); exit(0); }  
+
+    if (chdir("/") < 0) {
+        perror("chdir"); exit(0); }
+
+    char containerdir[64]= "";
+    sprintf(containerdir, "/oldroot%s", tmpdir);
+    rmdir(containerdir);
+
+    if (umount2("/oldroot", MNT_DETACH) == -1){
+        perror("umount2"); exit(0); }
+    rmdir("/oldroot");
+ ```
 
 本部分可以参考`pivot_root`的文档，最末处有相关的示例。这里直接使用`rmdir(containerdir)`，在容器内移除了主机中的`/tmp/lab4-XXX`，而没用到的进程通信的方法。
 
@@ -72,17 +87,31 @@ while (1){
 ##  Capabilities
 
 该部分较简单，需要注意设置`CAPNG_BOUNDING_SET`，否则在执行`execvp`后无法保留这些能力。可以使用`capsh --print`在容器内查看能力。
-
-![image-20200529210800204](C:\Users\86185\AppData\Roaming\Typora\typora-user-images\image-20200529210800204.png)
+```
+    capng_clear(CAPNG_SELECT_BOTH);
+    capng_updatev(CAPNG_ADD, CAPNG_BOUNDING_SET | CAPNG_EFFECTIVE | CAPNG_PERMITTED, 
+                  CAP_SETPCAP, CAP_MKNOD, CAP_AUDIT_WRITE, CAP_CHOWN,
+                  CAP_NET_RAW, CAP_DAC_OVERRIDE, CAP_FOWNER, CAP_FSETID,
+                  CAP_KILL, CAP_SETUID, CAP_SETGID, CAP_NET_BIND_SERVICE, 
+                  CAP_SYS_CHROOT, CAP_SETFCAP, -1);
+    capng_apply(CAPNG_SELECT_BOTH);
+ ```
 
 
 
 ## 系统调用过滤
 
 该部分最大的问题应该在于函数`seccomp_rule_add`中需要用到系统调用号，在标准示例中，会用到宏`SCMP_SYS()`来求得某系统调用的调用号。但是在这个宏使用方法如`SCMP_SYS(chdir)`，而非`SCMP_SYS("chdir")`，即并不能使用字符串型。这似乎导致没有办法使用某个文件统一存储要允许的系统调用的名字，并在程序中进行处理。本次实验中直接对每一个系统调用使用了一次`seccomp_rule_add`，似乎不太优雅。
-
-![image-20200529211539174](C:\Users\86185\AppData\Roaming\Typora\typora-user-images\image-20200529211539174.png)
-
+```
+    if ((ctx = seccomp_init(SCMP_ACT_KILL)) == NULL) {
+        perror("seccomp_init"); exit(0); }
+    
+    if (seccomp_set() < 0){
+        perror("seccomp_set"); exit(0); }
+    
+    if (seccomp_load(ctx) < 0){
+        perror("seccomp_load"); exit(0); }
+```
 其中`seccomp_set`中将这次涉及到的300余个系统调用加入白名单。
 
 此外，还在`main`中等待容器子进程返回后使用了`seccomp_release`。
@@ -93,7 +122,20 @@ while (1){
 
 ## cgroup
 
-![image-20200529212615496](C:\Users\86185\AppData\Roaming\Typora\typora-user-images\image-20200529212615496.png)
+```
+    //mount cgroup     
+    if (mount("tmpfs", "/sys/fs/cgroup", "tmpfs",  MS_NOSUID | MS_NODEV, NULL) < 0) {
+        perror("mount tmp"); exit(0); } 
+    mkdir("/sys/fs/cgroup/memory", 0777); 
+    if (mount("memory", "/sys/fs/cgroup/memory", "cgroup", MS_MGC_VAL, "memory") < 0) {
+        perror("mount cgroup/memory"); exit(0); }
+    mkdir("/sys/fs/cgroup/cpu,cpuacct", 0777); 
+    if (mount("cpu,cpuacct", "/sys/fs/cgroup/cpu,cpuacct", "cgroup", MS_MGC_VAL, "cpu,cpuacct") < 0) {
+        perror("mount cgroup/cpu"); exit(0); }
+    mkdir("/sys/fs/cgroup/pids", 0777); 
+    if (mount("pids", "/sys/fs/cgroup/pids", "cgroup", MS_MGC_VAL, "pids") < 0) {
+        perror("mount cgroup/pids"); exit(0); }
+```
 
 如图，在容器内挂载cgroup控制器。
 
@@ -154,6 +196,6 @@ while (1){
 
 
 
-​		容器内的隔离并不彻底，容器内的`/proc`下仍可看到主机的proc资源信息。而`top`等指令正是通过访问这些		文件来获取相关信息的。在网络上可以找到LXCFS项目解决该问题。
+​		容器内的隔离并不彻底，容器内的`/proc`下仍可看到主机的proc资源信息。而`top`等指令正是通过访问这些文件来获取相关信息的。在网络上可以找到LXCFS项目解决该问题。
 
 ​		或许可以将容器内的相关文件内容更改为容器本身的资源数值，从而解决该问题。
