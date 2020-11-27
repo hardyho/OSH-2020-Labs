@@ -20,18 +20,14 @@ int main(int argc, char **argv) {
         int number;
         int block_length;
         struct message_node *next;
-<<<<<<< HEAD
+
     } head, *rear, *new_message, *unfinished[32], *message_ptr; //To save message, including completed messages and unfinished messages
-=======
-    } head, *rear, *new_message, *unfinished[32], *message_ptr; 
->>>>>>> 0e0cf7bec4c68c82cb4adf0c13e9991cf5784d7d
 
     struct fd_node{
         int id;
         struct fd_node *next;
     } Used, Unused;  
 
-    // For each clients, there's a message manager, which can handle what message should be sent
     struct client_message_manager{
         struct message_node *current_message;
         int already_send_length;
@@ -177,7 +173,7 @@ int main(int argc, char **argv) {
                         if (FD_ISSET(fd_client[temp->id], &clients)){
                             //printf("%d Ready to recieve.\n",temp->id);
                             
-                            // If there's an unfinished message
+                            // If there isn't any unfinished message, create a new one
                             if (unfinished[temp->id] == NULL){ 
                                 new_message = malloc(sizeof(struct message_node));
                                 buffer = malloc(sizeof(char) * 1024);
@@ -187,7 +183,7 @@ int main(int argc, char **argv) {
                                 new_message->message_buffer = buffer;
                                 new_message->send_from = temp->id;
                             }
-                            // Else create a new one
+                            // else use the unfinished message
                             else {
                                 new_message = unfinished[temp->id];
                                 length = new_message->length;
